@@ -1,4 +1,4 @@
-# Import required modules and advise user to retry if fails
+# Import required modules and advise user to retry if fails Client
 try:
     import socket
     import json
