@@ -1,23 +1,64 @@
-# Import required modules and advise user to retry if fails Client
+# Import required modules and advise user to retry if fails
+#This is the client program run this second.
+
 try:
     import socket
     import json
     import threading
     import tkinter as tk
-    from tkinter import scrolledtext
+    from tkinter import scrolledtext, filedialog
     from datetime import datetime
 except ImportError:
     raise ImportError('Failed to start, close and retry')
 
 
 # Connect to the chat server
-def connect_to_server(host='127.0.0.1',
-                      port=8888):  # Accept custom IP and Port or default to IP 127.0.0.1 and port 8888
+def connect_to_server(host='127.0.0.1', port=8888,
+                      name=""):  # Accept custom IP and Port or default to IP 127.0.0.1 and port 8888
     global client_socket
     client_socket = socket.socket(socket.AF_INET,
                                   socket.SOCK_STREAM)  # Create a dictionary set of socket data using the socket library
     client_socket.connect((host, port))  # Connect to the server using the library functionality and set server / port
+    client_socket.send(name.encode())
     return client_socket
+
+
+def send_file(file_path):
+    with open(file_path, "rb") as file:
+        file_data = file.read()
+    header = {"type": "file",
+              "filename": file_path.split("/")[-1],
+              "length": len(file_data)
+              }
+    client_socket.send(json.dumps(header).encode())
+    client_socket.sendall(file_data)
+
+
+def choose_file():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        send_file(file_path)
+
+
+def receive_file(client_socket, data_length):
+    message_display.insert("end", f"[{message['timestamp']}] {message['name']}: sending file: {message['text']}\n")
+    message_display.see("end")
+    window.update()
+    data = b''
+    while len(data) < data_length:
+        packet = client_socket.recv(1024)
+        if not packet:
+            break
+        data += packet
+    return data
+
+
+# Function to save received file data
+def save_file(client_name, file_data):
+    file_path = f'received_files/{client_name}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
+    with open(file_path, 'wb') as file:
+        file.write(file_data)
+    print(f"File received and saved to {file_path}")
 
 
 # Function to set the user's name
@@ -48,18 +89,25 @@ def receive_messages():
             break
         # Decode the JSON message
         message = json.loads(data.decode())
+        message_type = message["type"]
+        message_length = message["length"]
 
-        # Update the message screen
-        message_display.insert("end", f"[{message['timestamp']}] {message['name']}: {message['text']}\n")
-        message_display.see("end")
-        window.update()
+        if message_type == "text":
+            # Update the message screen
+            message_display.insert("end", f"[{message['timestamp']}] {message['name']}: {message['text']}\n")
+            message_display.see("end")
+            window.update()
+
+        elif message_type == "file":
+            file_data = receive_file(client_socket, message_length)
+            save_file(client_name, file_data)
 
 
 # Function to send message to server
 def send_message():
     message_text = message_entry.get()  # Get message on click
     if message_text:  # Checks if a message text exists
-        message = {"text": message_text}
+        message = {"text": message_text, "type": "text"}
         # Send the message encoded in JSON format
         client_socket.send(json.dumps(message).encode())
         # Create a timestamp
@@ -90,6 +138,9 @@ def create_windows():
 
     name_button = tk.Button(name_frame, text="Set Name", command=set_name)
     name_button.pack(side="left")
+
+    send_file_button = tk.Button(window, text="Send File", command=choose_file)
+    send_file_button.pack()
 
     # Create a scrolled text widget to display messages
     message_display = scrolledtext.ScrolledText(window, wrap=tk.WORD)
@@ -138,3 +189,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
