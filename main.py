@@ -1,4 +1,3 @@
-# Start the Server program first, then start the Client Program
 # Import required modules and advise user to retry if fails
 try:
     import socket
@@ -72,4 +71,70 @@ def send_message():
         window.update()
 
 
+def create_windows():
+    # Create a tkinter window
+    global window
+    global name_entry, name_button, message_display, message_entry
+    window = tk.Tk()
+    window.title("Chat Client")
 
+    # Create a frame for name input
+    name_frame = tk.Frame(window)
+    name_frame.pack(fill="x")
+
+    name_label = tk.Label(name_frame, text="Enter your name:")
+    name_label.pack(side="left")
+
+    name_entry = tk.Entry(name_frame)
+    name_entry.pack(side="left")
+
+    name_button = tk.Button(name_frame, text="Set Name", command=set_name)
+    name_button.pack(side="left")
+
+    # Create a scrolled text widget to display messages
+    message_display = scrolledtext.ScrolledText(window, wrap=tk.WORD)
+    message_display.tag_config('sender', foreground="#228B22")
+    message_display.tag_config('system', foreground="#FF5733")
+    message_display.pack(fill="both", expand=True)
+
+    # Create an entry widget for typing messages
+    message_entry = tk.Entry(window)
+    message_entry.pack(fill="x")
+
+    # Create a send button to send messages
+    send_button = tk.Button(window, text="Send", command=send_message)
+    send_button.pack()
+
+    # Set the initial state of name entry and button
+    name = ""
+    name_entry.config(state="normal")
+    name_button.config(state="normal")
+
+
+def start_daemon_thread():
+    global message_thread
+    message_thread = threading.Thread(target=receive_messages)
+    message_thread.daemon = True
+    message_thread.start()
+    return message_thread
+
+
+def handle_cleanup():
+    client_socket.shutdown(socket.SHUT_RDWR)
+    client_socket.close()
+
+
+def main():
+    try:
+        connect_to_server()
+        create_windows()
+        start_daemon_thread()
+        # Loop the program until exit
+        while True:
+            window.mainloop()
+    finally:
+        handle_cleanup()
+
+
+if __name__ == '__main__':
+    main()
