@@ -1,5 +1,6 @@
 # Import required modules and advise user to retry if fails
 # This is the client program run this second.
+# Client
 
 try:
     from Crypto.Cipher import AES
@@ -17,30 +18,39 @@ except ImportError:
 encryption_key = b'ThisIsASecretKey'
 
 # Connect to the chat server
-def connect_to_server(host='127.0.0.1', port=8888,
-                      name=""):  # Accept custom IP and Port or default to IP 127.0.0.1 and port 8888
-    global client_socket
-    client_socket = socket.socket(socket.AF_INET,
-                                  socket.SOCK_STREAM)  # Create a dictionary set of socket data using the socket library
-    client_socket.connect((host, port))  # Connect to the server using the library functionality and set server / port
-    client_socket.send(name.encode())
-
-    return client_socket
+def connect_to_server(host='127.0.0.1', port=8888, name=""):
+    try:
+        global client_socket
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((host, port))
+        client_socket.send(name.encode())
+        return client_socket
+    except Exception as e:
+        print(f"Error connecting to server: {e}")
 
 
 def send_file(file_path):
-    timestamp = datetime.now().strftime("%H:%M:%S")  # Format timestamp to hour:min:sec
-    with open(file_path, "rb") as file:
-        file_data = file.read()
-    header = {"timestamp": timestamp,
-              "name": name,
-              "text": '',
-              "type": "file",
-              "filename": file_path.split("/")[-1],
-              "length": len(file_data)
-              }
-    client_socket.send(json.dumps(header).encode())
-    client_socket.sendall(file_data)
+    try:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Broadcast "preparing to send file" message
+        message = {"timestamp": timestamp, "name": name, "text": "Sending file...", "type": "text",
+                   "length": 0}
+        client_socket.send(json.dumps(message).encode())
+
+        with open(file_path, "rb") as file:
+            file_data = file.read()
+        header = {"timestamp": timestamp,
+                  "name": name,
+                  "text": '',
+                  "type": "file",
+                  "filename": file_path.split("/")[-1],
+                  "length": len(file_data)
+                  }
+        client_socket.send(json.dumps(header).encode())
+        client_socket.sendall(file_data)
+    except Exception as e:
+        print(f"Error sending file: {e}")
 
 
 def choose_file():
@@ -137,8 +147,8 @@ import time
 
 # Add global variables for rate limiting
 last_message_time = 0
-message_limit_interval = 2  # Allow one message every 5 seconds
-message_limit_count = 3  # Allow a maximum of 3 messages within the interval
+message_limit_interval = 0  # Allow one message every 100 seconds
+message_limit_count = 0  # Allow a maximum of 100 messages within the interval
 
 
 # Function to send message to server
@@ -197,6 +207,7 @@ def create_windows():
     send_file_button = tk.Button(window, text="Send File", command=choose_file)
     send_file_button.pack()
 
+
     message_display = scrolledtext.ScrolledText(window, wrap=tk.WORD)
     message_display.tag_config('sender', foreground="#228B22")
     message_display.tag_config('system', foreground="#FF5733")
@@ -244,12 +255,14 @@ def main():
         connect_to_server()
         create_windows()
         start_daemon_thread()
-        # Loop the program until exit
         while True:
             window.mainloop()
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
     finally:
         handle_cleanup()
 
 
 if __name__ == '__main__':
     main()
+
