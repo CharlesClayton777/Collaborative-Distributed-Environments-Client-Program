@@ -1,29 +1,41 @@
 # Import required modules and advise user to retry if fails
-#This is the client program run this second!
+# This is the client program run this second.
+
 try:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad, unpad
     import socket
     import json
     import threading
     import tkinter as tk
-    from tkinter import scrolledtext, filedialog, messagebox
+    from tkinter import scrolledtext, filedialog
     from datetime import datetime
 except ImportError:
     raise ImportError('Failed to start, close and retry')
 
+# Generate a fixed key (for demonstration purposes)
+encryption_key = b'ThisIsASecretKey'
 
 # Connect to the chat server
-def connect_to_server(host='127.0.0.1', port=8888, name=""):
+def connect_to_server(host='127.0.0.1', port=8888,
+                      name=""):  # Accept custom IP and Port or default to IP 127.0.0.1 and port 8888
     global client_socket
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((host, port))
+    client_socket = socket.socket(socket.AF_INET,
+                                  socket.SOCK_STREAM)  # Create a dictionary set of socket data using the socket library
+    client_socket.connect((host, port))  # Connect to the server using the library functionality and set server / port
     client_socket.send(name.encode())
+
     return client_socket
 
 
 def send_file(file_path):
+    timestamp = datetime.now().strftime("%H:%M:%S")  # Format timestamp to hour:min:sec
     with open(file_path, "rb") as file:
         file_data = file.read()
-    header = {"type": "file",
+    header = {"timestamp": timestamp,
+              "name": name,
+              "text": '',
+              "type": "file",
               "filename": file_path.split("/")[-1],
               "length": len(file_data)
               }
@@ -37,9 +49,13 @@ def choose_file():
         send_file(file_path)
 
 
-def receive_file(client_socket, data_length):
+def receive_file(client_socket, message):
+    filename = message['filename']
+    message_display.insert("end", f"[{message['timestamp']}] {message['name']}: sending file: {filename}\n")
+    message_display.see("end")
+    window.update()
     data = b''
-    while len(data) < data_length:
+    while len(data) < message['length']:
         packet = client_socket.recv(1024)
         if not packet:
             break
@@ -47,18 +63,41 @@ def receive_file(client_socket, data_length):
     return data
 
 
-def save_file(client_name, file_data):
-    file_path = f'received_files/{client_name}_{datetime.now().strftime("%Y%m%d%H%M%S")}'
+# Function to save received file data
+def save_file(message, file_data):
+    name = message['name']
+    filename = message['filename']
+    file_path = f'received_files/{name}_{datetime.now().strftime("%Y%m%d%H%M%S")} {filename}'
     with open(file_path, 'wb') as file:
         file.write(file_data)
     print(f"File received and saved to {file_path}")
 
 
+# Function to set the user's name
+disallowed_names = ["Admin", "Server", "Moderator"]  # List of disallowed names
+
+
 def set_name():
+    global name
     name = name_entry.get()
+
+    if name.strip() == "":
+        # Handle empty name
+        # You can display a message or take any other action here
+        return
+
+    if name in disallowed_names:
+        # Handle disallowed names
+        # You can display a message or take any other action here
+        return
+
+    # Disable the name input and remove submit button
     name_entry.config(state="disabled")
     name_button.pack_forget()
+
+    # Format the name data and send it
     client_socket.send(name.encode())
+
     timestamp = datetime.now().strftime("%H:%M:%S")
     message_display.delete("end")
     message_display.insert("end", f"[{timestamp}] Welcome to the chat {name}\n", "system")
@@ -66,31 +105,71 @@ def set_name():
     window.update()
 
 
+# Function to receive and display messages from the server
 def receive_messages():
     while True:
         data = client_socket.recv(1024)
         if not data:
             break
-        message = json.loads(data.decode())
+        # Split the received data into IV and encrypted message
+        iv = data[:AES.block_size]
+        encrypted_message = data[AES.block_size:]
+        cipher = AES.new(encryption_key, AES.MODE_CBC, iv)  # Create AES cipher with IV
+        decrypted_message = unpad(cipher.decrypt(encrypted_message), AES.block_size)  # Decrypt and unpad the message
+        message = json.loads(decrypted_message.decode())  # Decode JSON message
+        # Handle the message as usual
         message_type = message["type"]
         message_length = message["length"]
 
         if message_type == "text":
+            # Update the message screen
             message_display.insert("end", f"[{message['timestamp']}] {message['name']}: {message['text']}\n")
             message_display.see("end")
             window.update()
 
         elif message_type == "file":
-            file_data = receive_file(client_socket, message_length)
-            save_file(client_name, file_data)
+            file_data = receive_file(client_socket, message)
+            save_file(message, file_data)
 
 
+# Function to send message to server
+import time
+
+# Add global variables for rate limiting
+last_message_time = 0
+message_limit_interval = 2  # Allow one message every 5 seconds
+message_limit_count = 3  # Allow a maximum of 3 messages within the interval
+
+
+# Function to send message to server
 def send_message():
-    message_text = message_entry.get()
-    if message_text:
-        message = {"text": message_text, "type": "text"}
+    global last_message_time
+
+    # Check if rate limit is exceeded
+    current_time = time.time()
+    if current_time - last_message_time < message_limit_interval:
+        print("Message rate limit exceeded. Please wait before sending another message.")
+        return
+
+    message_text = message_entry.get()  # Get message on click
+
+    # Check if message length exceeds limit
+    if len(message_text) > 200:  # Adjust the message length limit as needed
+        print("Message length limit exceeded. Please keep your message within 200 characters.")
+        return
+
+    if message_text:  # Checks if a message text exists
+        # Update last message time
+        last_message_time = current_time
+
+        # Create a timestamp
+        timestamp = datetime.now().strftime("%H:%M:%S")  # Format timestamp to hour:min:sec
+        message = {"timestamp": timestamp, "name": name, "text": message_text, "type": "text",
+                   "length": len(message_text)}
+        # Send the message encoded in JSON format
         client_socket.send(json.dumps(message).encode())
-        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Update the message screen
         message_display.insert("end", f"[{timestamp}] You: {message['text']}\n", "sender")
         message_display.see("end")
         message_entry.delete(0, "end")
@@ -165,6 +244,7 @@ def main():
         connect_to_server()
         create_windows()
         start_daemon_thread()
+        # Loop the program until exit
         while True:
             window.mainloop()
     finally:
